@@ -1,0 +1,172 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Solar Panel I-V Curve with Shading</title>
+    <script src="https://cdn.plot.ly/plotly-latest.min.js"></script>
+    <style>
+        #solar-panel {
+            border: 1px solid black;
+        }
+        .shade {
+            fill: rgba(0, 0, 0, 0.5);
+            cursor: grab;
+        }
+    </style>
+</head>
+<body>
+
+<h2>Solar Panel Simulation</h2>
+<svg id="simulation" width="600" height="400">
+    <!-- Solar panel (rectangular structure) -->
+    <rect id="solar-panel" x="100" y="100" width="400" height="200" fill="lightblue" stroke="black" stroke-width="2"/>
+    <!-- Grid lines to resemble a solar panel structure -->
+    <line x1="150" y1="100" x2="150" y2="300" stroke="black" stroke-width="1"/>
+    <line x1="200" y1="100" x2="200" y2="300" stroke="black" stroke-width="1"/>
+    <line x1="250" y1="100" x2="250" y2="300" stroke="black" stroke-width="1"/>
+    <line x1="300" y1="100" x2="300" y2="300" stroke="black" stroke-width="1"/>
+    <line x1="350" y1="100" x2="350" y2="300" stroke="black" stroke-width="1"/>
+    <line x1="400" y1="100" x2="400" y2="300" stroke="black" stroke-width="1"/>
+    <line x1="450" y1="100" x2="450" y2="300" stroke="black" stroke-width="1"/>
+    <line x1="100" y1="150" x2="500" y2="150" stroke="black" stroke-width="1"/>
+    <line x1="100" y1="200" x2="500" y2="200" stroke="black" stroke-width="1"/>
+    <line x1="100" y1="250" x2="500" y2="250" stroke="black" stroke-width="1"/>
+    <!-- Draggable shade rectangle (same size as the panel) -->
+    <rect id="shade" class="shade" x="100" y="320" width="400" height="200" />
+
+</svg>
+
+<div id="ivCurve" style="width:600px;height:400px;bottom: 40px"></div>
+
+<script>
+    const q = 1.6e-19; // Electron charge (Coulombs)
+    const k = 1.38e-23; // Boltzmann constant (J/K)
+    const T = 298; // Temperature in Kelvin
+    const n = 1.3; // Ideality factor
+    const I_0 = 1e-10; // Saturation current (A)
+    const R_s = 0.01; // Series resistance (Ω)
+    const R_sh = 1000; // Shunt resistance (Ω)
+    
+    // Constants for the solar panel
+    const initialCurrent = 5.0;
+    const totalCells = 16;
+    const panelWidth = 400; // Width of the panel in pixels
+    const panelHeight = 200; // Height of the panel in pixels
+    const cellWidth = panelWidth / 4;
+    const cellHeight = panelHeight / 4;
+
+    // Voltage array
+    const V = Array.from({length: 100}, (_, i) => i * 0.006);
+
+    // Function to calculate the current
+    function solarCurrent(V, I_ph) {
+        return I_ph - I_0 * (Math.exp((q * (V + I_ph * R_s)) / (n * k * T)) - 1) - (V + I_ph * R_s) / R_sh;
+    }
+
+    // Function to plot the I-V curve
+    function plotIVCurve(I_ph) {
+        const trace = {
+            x: V,
+            y: V.map(v => solarCurrent(v, I_ph)),
+            mode: 'lines',
+            name: 'I-V Curve',
+            line: {color: 'blue'}
+        };
+
+        const layout = {
+            title: 'I-V Characteristic Curve of Solar Panel',
+            xaxis: { title: 'Voltage (V)' },
+            yaxis: { title: 'Current (A)' }
+        };
+
+        Plotly.newPlot('ivCurve', [trace], layout);
+    }
+
+    // Initial plot
+    plotIVCurve(initialCurrent);
+
+    // Make the shade draggable
+    const shade = document.getElementById('shade');
+    let isDragging = false;
+    let offsetX, offsetY;
+
+    shade.addEventListener('mousedown', (e) => {
+        isDragging = true;
+        offsetX = e.offsetX;
+        offsetY = e.offsetY;
+        shade.style.cursor = 'grabbing';
+    });
+
+    document.addEventListener('mousemove', (e) => {
+        if (isDragging) {
+            const panelRect = document.getElementById('solar-panel').getBoundingClientRect();
+            const simulationRect = document.getElementById('simulation').getBoundingClientRect();
+            let x = e.clientX - simulationRect.left - offsetX;
+            let y = e.clientY - simulationRect.top - offsetY;
+
+            // Restrict movement within the simulation area
+            x = Math.max(0, Math.min(x, simulationRect.width - shade.width.baseVal.value));
+            y = Math.max(0, Math.min(y, simulationRect.height - shade.height.baseVal.value));
+
+            // Move the shade
+            shade.setAttribute('x', x);
+            shade.setAttribute('y', y);
+
+            // Calculate the shading coverage
+            const coveragePercentage = calculateCoveragePercentage(shade, panelRect, simulationRect);
+
+            // Update the photogenerated current (I_ph) based on coverage
+            const I_ph = calculateCurrent(coveragePercentage);
+
+            // Replot the curve with the new I_ph value
+            plotIVCurve(I_ph);
+        }
+    });
+
+    document.addEventListener('mouseup', () => {
+        isDragging = false;
+        shade.style.cursor = 'grab';
+    });
+
+    // Function to calculate the percentage of solar panel covered by the shading object
+    function calculateCoveragePercentage(shade, panelRect, simulationRect) {
+        const shadeRect = shade.getBoundingClientRect();
+        const panelX = panelRect.left - simulationRect.left;
+        const panelY = panelRect.top - simulationRect.top;
+
+        // Calculate the overlap area
+        const overlapRect = {
+            left: Math.max(shadeRect.left, panelX),
+            top: Math.max(shadeRect.top, panelY),
+            right: Math.min(shadeRect.right, panelX + panelWidth),
+            bottom: Math.min(shadeRect.bottom, panelY + panelHeight)
+        };
+
+        // Calculate overlap width and height
+        const overlapWidth = Math.max(0, overlapRect.right - overlapRect.left);
+        const overlapHeight = Math.max(0, overlapRect.bottom - overlapRect.top);
+
+        // Calculate coverage area as a fraction of the total panel area
+        const overlapArea = overlapWidth * overlapHeight;
+        const panelArea = panelWidth * panelHeight;
+        const coverageFraction = overlapArea / panelArea;
+
+        return Math.min(1, coverageFraction); // Ensure it does not exceed 100%
+    }
+
+    // Function to calculate the current based on the percentage of coverage
+    function calculateCurrent(coverageFraction) {
+        if (coverageFraction >= 1) {
+            return 0;
+        }
+
+        // Calculate the new current value based on coverage
+        const newCurrent = initialCurrent * (1 - coverageFraction);
+
+        return Math.max(newCurrent, 0);
+    }
+</script>
+
+</body>
+</html>
